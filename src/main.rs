@@ -91,6 +91,57 @@ pub trait Recorder {
     fn write(&self, w: &mut dyn Write) -> Result<(), Error>;
 }
 
+struct PureRaw {
+    data: Vec<String>,
+    show_linenumbers: bool,
+}
+
+impl Recorder for PureRaw {
+    fn increment(&mut self, trace: &StackTrace) -> Result<(), Error> {
+        let frame = trace
+            .frames
+            .iter()
+            .map(|frame| {
+                let filename = match &frame.short_filename {
+                    Some(f) => f,
+                    None => &frame.filename,
+                };
+                if self.show_linenumbers && frame.line != 0 {
+                    format!("{} ({}:{})", frame.name, filename, frame.line)
+                } else if !filename.is_empty() {
+                    format!("{} ({})", frame.name, filename)
+                } else {
+                    frame.name.clone()
+                }
+            })
+            .collect::<Vec<String>>()
+            .join(",");
+        let datastr = format!(
+            "{};{};{};{};{};{};{};{}",
+            Local::now().timestamp_millis(),
+            trace.pid,
+            trace.thread_id,
+            trace.thread_name.as_deref().unwrap_or(""),
+            trace
+                .os_thread_id
+                .map_or(String::new(), |id| id.to_string()),
+            trace.active,
+            trace.owns_gil,
+            frame
+        );
+        self.data.push(datastr);
+        Ok(())
+    }
+
+    fn write(&self, w: &mut dyn Write) -> Result<(), Error> {
+        for line in &self.data {
+            w.write_all(line.as_bytes())?;
+            w.write_all(b"\n")?;
+        }
+        Ok(())
+    }
+}
+
 impl Recorder for speedscope::Stats {
     fn increment(&mut self, trace: &StackTrace) -> Result<(), Error> {
         Ok(self.record(trace)?)
@@ -142,6 +193,10 @@ fn record_samples(pid: remoteprocess::Pid, config: &Config) -> Result<(), Error>
         Some(FileFormat::chrometrace) => {
             Box::new(chrometrace::Chrometrace::new(config.show_line_numbers))
         }
+        Some(FileFormat::pureraw) => Box::new(PureRaw {
+            data: Vec::new(),
+            show_linenumbers: config.show_line_numbers,
+        }),
         None => return Err(format_err!("A file format is required to record samples")),
     };
 
@@ -153,6 +208,7 @@ fn record_samples(pid: remoteprocess::Pid, config: &Config) -> Result<(), Error>
                 Some(FileFormat::speedscope) => "json",
                 Some(FileFormat::raw) => "txt",
                 Some(FileFormat::chrometrace) => "json",
+                Some(FileFormat::pureraw) => "txt",
                 None => return Err(format_err!("A file format is required to record samples")),
             };
             let local_time = Local::now().to_rfc3339_opts(SecondsFormat::Secs, true);
@@ -363,6 +419,13 @@ fn record_samples(pid: remoteprocess::Pid, config: &Config) -> Result<(), Error>
                 lede, filename, samples, errors
             );
             println!("{}Visit chrome://tracing to view", lede);
+        }
+        FileFormat::pureraw => {
+            println!(
+                "{}Wrote raw stacktrace data to '{}'. Samples: {} Errors: {}",
+                lede, filename, samples, errors
+            );
+            println!("{}You can use the flamegraph.pl script from https://github.com/brendangregg/flamegraph to generate a SVG", lede);
         }
     };
 
