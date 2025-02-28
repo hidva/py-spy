@@ -117,16 +117,17 @@ impl Recorder for PureRaw {
             .collect::<Vec<String>>()
             .join(",");
         let datastr = format!(
-            "{};{};{};{};{};{};{};{}",
-            Local::now().timestamp_millis(),
+            "{};{};{};{};{};{};{};{};{}",
+            trace.ts_ms,
             trace.pid,
             trace.thread_id,
+            trace.gil_thread_id,
             trace.thread_name.as_deref().unwrap_or(""),
             trace
                 .os_thread_id
                 .map_or(String::new(), |id| id.to_string()),
             trace.active,
-            trace.owns_gil,
+            trace.owns_gil(),
             frame
         );
         self.data.push(datastr);
@@ -322,7 +323,7 @@ fn record_samples(pid: remoteprocess::Pid, config: &Config) -> Result<(), Error>
                 continue;
             }
 
-            if config.gil_only && !trace.owns_gil {
+            if config.gil_only && !trace.owns_gil() {
                 continue;
             }
 

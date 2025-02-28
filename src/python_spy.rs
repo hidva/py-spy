@@ -238,7 +238,7 @@ impl PythonSpy {
             let python_thread_id = thread.thread_id();
             let owns_gil = python_thread_id == gil_thread_id;
 
-            if self.config.gil_only && !owns_gil {
+            if gil_thread_id != 0 && self.config.gil_only && !owns_gil {
                 continue;
             }
 
@@ -248,6 +248,7 @@ impl PythonSpy {
                 self.config.dump_locals > 0,
                 self.config.lineno,
             )?;
+            trace.gil_thread_id = gil_thread_id;
 
             // Try getting the native thread id
 
@@ -272,7 +273,6 @@ impl PythonSpy {
             }
 
             trace.thread_name = self._get_python_thread_name(python_thread_id);
-            trace.owns_gil = owns_gil;
             trace.pid = self.process.pid;
 
             // Figure out if the thread is sleeping from the OS if possible
@@ -331,7 +331,7 @@ impl PythonSpy {
                 return Err(format_err!("Max thread recursion depth reached"));
             }
 
-            if self.config.gil_only {
+            if gil_thread_id != 0 && self.config.gil_only {
                 // There's only one GIL thread and we've captured it, so we can
                 // stop now
                 break;

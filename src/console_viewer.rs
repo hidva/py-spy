@@ -93,11 +93,11 @@ impl ConsoleViewer {
                 continue;
             }
 
-            if self.config.gil_only && !trace.owns_gil {
+            if self.config.gil_only && !trace.owns_gil() {
                 continue;
             }
 
-            if trace.owns_gil {
+            if trace.owns_gil() {
                 self.stats.gil += 1
             }
 

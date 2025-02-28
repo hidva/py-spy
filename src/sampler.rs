@@ -15,6 +15,7 @@ use crate::python_spy::PythonSpy;
 use crate::stack_trace::{ProcessInfo, StackTrace};
 use crate::timer::Timer;
 use crate::version::Version;
+use chrono::Local;
 
 pub struct Sampler {
     pub version: Option<Version>,
@@ -63,7 +64,8 @@ impl Sampler {
 
             for sleep in Timer::new(spy.config.sampling_rate as f64) {
                 let mut sampling_errors = None;
-                let traces = match spy.get_stack_traces() {
+                let ts_ms = Local::now().timestamp_millis();
+                let mut traces = match spy.get_stack_traces() {
                     Ok(traces) => traces,
                     Err(e) => {
                         if spy.process.exe().is_err() {
@@ -77,6 +79,10 @@ impl Sampler {
                         Vec::new()
                     }
                 };
+                for trace in &mut traces {
+                    trace.ts_ms = ts_ms;
+                }
+                let traces = traces;
 
                 let late = sleep.err();
                 if tx

@@ -14,18 +14,20 @@ use crate::python_interpreters::{
 /// Call stack for a single python thread
 #[derive(Debug, Clone, Serialize)]
 pub struct StackTrace {
+    /// 堆栈被捕捉时当前时间戳, 具有相同时间戳的堆栈意味着是被同时采样的.
+    pub ts_ms: i64,
     /// The process id than generated this stack trace
     pub pid: Pid,
     /// The python thread id for this stack trace
     pub thread_id: u64,
+    /// StackTrace 被捕捉那一刻 GIL owner thread id, 0 意味着没有人持有着 GIL.
+    pub gil_thread_id: u64,
     // The python thread name for this stack trace
     pub thread_name: Option<String>,
     /// The OS thread id for this stack tracee
     pub os_thread_id: Option<u64>,
     /// Whether or not the thread was active
     pub active: bool,
-    /// Whether or not the thread held the GIL
-    pub owns_gil: bool,
     /// The frames
     pub frames: Vec<Frame>,
     /// process commandline / parent process info
@@ -95,7 +97,7 @@ where
             .context("Failed to copy PyThreadState")?;
 
         let mut trace = get_stack_trace(&thread, process, dump_locals > 0, lineno)?;
-        trace.owns_gil = trace.thread_id == gil_thread_id;
+        trace.gil_thread_id = gil_thread_id;
 
         ret.push(trace);
         // This seems to happen occasionally when scanning BSS addresses for valid interpreters
@@ -204,11 +206,12 @@ where
     }
 
     Ok(StackTrace {
+        ts_ms: 0,
+        gil_thread_id: 0,
         pid: 0,
         frames,
         thread_id: thread.thread_id(),
         thread_name: None,
-        owns_gil: false,
         active: true,
         os_thread_id: thread.native_thread_id(),
         process_info: None,
@@ -217,7 +220,7 @@ where
 
 impl StackTrace {
     pub fn status_str(&self) -> &str {
-        match (self.owns_gil, self.active) {
+        match (self.owns_gil(), self.active) {
             (_, false) => "idle",
             (true, true) => "active+gil",
             (false, true) => "active",
@@ -234,6 +237,20 @@ impl StackTrace {
         match self.os_thread_id {
             Some(tid) => format!("{}", tid),
             None => format!("{:#X}", self.thread_id),
+        }
+    }
+
+    /// Whether or not the thread held the GIL
+    pub fn owns_gil(&self) -> bool {
+        if self.gil_thread_id == 0 {
+            // gil_thread_id = 0 意味着当前没有人持有者 GIL,
+            // 或者不清楚是否有人持有者 GIL, 我这里让其返回 true 是不是很奇怪?
+            // 主要是想解决这样的问题, 在使用 record -g 时, 之前 pyspy 会在 gil_thread_id 为 0
+            // 时不捕捉任何堆栈, 但这时我确实期望想看到所有线程的堆栈情况, 以此了解为啥这些线程都
+            // 不持有 GIL!
+            return true;
+        } else {
+            return self.gil_thread_id == self.thread_id;
         }
     }
 }

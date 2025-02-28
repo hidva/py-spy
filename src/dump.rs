@@ -66,7 +66,7 @@ pub fn print_trace(trace: &StackTrace, include_activity: bool) {
 
     let status = if include_activity {
         format!(" ({})", trace.status_str())
-    } else if trace.owns_gil {
+    } else if trace.owns_gil() {
         " (gil)".to_owned()
     } else {
         "".to_owned()
